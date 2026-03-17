@@ -1,458 +1,140 @@
-// DaylyBread Website Patch Script
+// DaylyBread Final Patch Script - Anti-Duplicate & YouTube Background Version
 (function() {
   'use strict';
 
   const CONFIG = {
-    heroVideoSrc: '/Daylee-bread/assets/hero-video-new.mp4',
+    // YouTube Shorts ID: wvZeYWiL-J8
+    youtubeId: 'wvZeYWiL-J8', 
     logoSrc: '/Daylee-bread/assets/logo-new.jpg',
     meals: [
-      {
-        image: '/Daylee-bread/assets/breakfast-new.jpg',
-        title: 'Breakfast',
-        description: 'Akara and pap',
-        time: '7am - 9am'
-      },
-      {
-        image: '/Daylee-bread/assets/lunch-new.jpg',
-        title: 'Afternoon',
-        description: 'Rice, chicken and plantain',
-        time: '1pm - 3pm'
-      },
-      {
-        image: '/Daylee-bread/assets/dinner-new.jpg',
-        title: 'Evening',
-        description: 'Semo, vegetable soup, Eguisi and fish',
-        time: '6pm - 7pm'
-      }
+      { image: '/Daylee-bread/assets/breakfast-new.jpg', title: 'Breakfast', description: 'Akara and pap', time: '7am - 9am' },
+      { image: '/Daylee-bread/assets/lunch-new.jpg', title: 'Afternoon', description: 'Rice, chicken and plantain', time: '1pm - 3pm' },
+      { image: '/Daylee-bread/assets/dinner-new.jpg', title: 'Evening', description: 'Semo, vegetable soup, Eguisi and fish', time: '6pm - 7pm' }
     ]
   };
 
   const patchedElements = new Set();
-  let slideshowInterval = null;
 
   function runPatches() {
+    // SAFETY CHECK: Ensure header and hero exist before running to avoid "Footer First" loading
+    const header = document.querySelector('header, nav');
+    const hero = document.querySelector('section');
+    if (!header && !hero) return;
+
     patchHeroVideo();
     patchLogo();
     patchMealsSlideshow();
     fixNavigationLinks();
-    hideWaitlistStats();
+    hideWaitlistStats(); 
     fixResponsiveness();
   }
 
-  // 1. Add video background to hero section
+  // 1. YouTube Background (Optimized Aspect Ratio)
   function patchHeroVideo() {
     if (patchedElements.has('hero-video')) return;
-    
-    const sections = document.querySelectorAll('section');
-    let heroSection = null;
-    
-    for (const section of sections) {
-      const text = section.textContent;
-      if (text.includes('EAT') && text.includes('EARN') && text.includes('BELONG')) {
-        heroSection = section;
-        break;
-      }
-    }
-    
+    const heroSection = Array.from(document.querySelectorAll('section')).find(s => 
+      s.textContent.includes('EAT') && s.textContent.includes('EARN')
+    );
     if (!heroSection) return;
+
+    const iframe = document.createElement('iframe');
+    // playlist param + loop=1 ensures it doesn't stop
+    iframe.src = `https://www.youtube.com/embed/${CONFIG.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${CONFIG.youtubeId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&showinfo=0`;
     
-    // Remove existing video if any
-    const existingVideo = heroSection.querySelector('video');
-    if (existingVideo) existingVideo.remove();
-    const existingOverlay = heroSection.querySelector('.hero-overlay');
-    if (existingOverlay) existingOverlay.remove();
-
-    const video = document.createElement('video');
-    video.src = CONFIG.heroVideoSrc;
-    video.autoplay = true;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.className = 'hero-video-bg';
-    video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;';
-
+    // The "Cover" Hack: Ensures no black bars on any screen size
+    iframe.style.cssText = 'position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100vh;min-width:177.77vh;transform:translate(-50%,-50%);z-index:0;pointer-events:none;border:none;';
+    
     const overlay = document.createElement('div');
-    overlay.className = 'hero-overlay';
     overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);z-index:1;';
 
-    heroSection.style.cssText += 'position:relative;overflow:hidden;min-height:100vh;';
-    heroSection.insertBefore(overlay, heroSection.firstChild);
-    heroSection.insertBefore(video, heroSection.firstChild);
-
-    // Ensure content is above video
-    const children = heroSection.querySelectorAll(':scope > *:not(video):not(.hero-overlay)');
-    children.forEach(child => {
-      child.style.position = 'relative';
-      child.style.zIndex = '2';
-    });
-
+    heroSection.style.position = 'relative';
+    heroSection.style.overflow = 'hidden';
+    heroSection.prepend(overlay);
+    heroSection.prepend(iframe);
+    
     patchedElements.add('hero-video');
   }
 
-    // 2. Replace logo in header with new logo
+  // 2. Logo Swap (Anti-Duplicate Guard)
   function patchLogo() {
-    if (patchedElements.has('logo')) return;
-
-    const header = document.querySelector('header, nav');
-    if (!header) return;
-
-    const targets = header.querySelectorAll('svg, img');
+    const targets = document.querySelectorAll('header img, header svg, footer img, footer svg, .brand-icon');
     
     targets.forEach(target => {
+      // Prevents the "Stacking Logos" bug by checking for the marker class
+      if (target.parentElement.querySelector('.patched-logo')) return;
+
       const rect = target.getBoundingClientRect();
-      const windowWidth = window.innerWidth;
-
-      // Only touch things on the left side (first 40% of the screen)
-      // This ignores the menu button on the right
-      if (rect.left > windowWidth * 0.4) {
-        return; 
-      }
-
-      if (!patchedElements.has('logo')) {
+      // Target left-side (header) or anything in the footer
+      if (rect.left < window.innerWidth * 0.4 || target.closest('footer')) {
         const img = document.createElement('img');
         img.src = CONFIG.logoSrc;
-        img.alt = 'DaylyBread';
-        img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
+        img.className = 'patched-logo'; 
+        img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;display:inline-block;';
         
-        target.parentNode.replaceChild(img, target);
-        patchedElements.add('logo');
+        target.style.display = 'none'; // Hide the old orange icon
+        target.parentElement.insertBefore(img, target);
       }
     });
   }
 
-  // 3. Create meals slideshow
-  function patchMealsSlideshow() {
-    if (patchedElements.has('meals-slideshow')) return;
-    if (document.querySelector('.daylybread-slideshow')) return;
-
-    const sections = document.querySelectorAll('section');
-    let mealSection = null;
-    
-    for (const section of sections) {
-      const text = section.textContent;
-      if (text.includes('Meal Plans') || text.includes('Daily Plan') || text.includes('₦10,000')) {
-        mealSection = section;
-        break;
-      }
-    }
-
-    if (!mealSection) return;
-
-    const existingImages = mealSection.querySelectorAll('img');
-    if (existingImages.length > 0) {
-      const targetImg = existingImages[0];
-      const slideshowContainer = createSlideshow();
-      targetImg.parentNode.replaceChild(slideshowContainer, targetImg);
-      
-      for (let i = 1; i < existingImages.length; i++) {
-        const img = existingImages[i];
-        if (img.closest('.daylybread-slideshow')) continue;
-        const parent = img.parentElement;
-        if (parent && parent.children.length === 1) {
-          parent.style.display = 'none';
-        } else {
-          img.style.display = 'none';
-        }
-      }
-    }
-
-    patchedElements.add('meals-slideshow');
-  }
-
-  function createSlideshow() {
-    const container = document.createElement('div');
-    container.className = 'daylybread-slideshow';
-    container.style.cssText = 'position:relative;width:100%;max-width:500px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
-
-    CONFIG.meals.forEach((meal, index) => {
-      const slide = document.createElement('div');
-      slide.className = 'slideshow-slide';
-      slide.style.cssText = `position:relative;width:100%;display:${index === 0 ? 'block' : 'none'};`;
-      slide.dataset.index = index;
-
-      const img = document.createElement('img');
-      img.src = meal.image;
-      img.alt = meal.title;
-      img.style.cssText = 'width:100%;height:350px;object-fit:cover;display:block;';
-
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:30px 20px 20px;color:white;';
-
-      const title = document.createElement('h3');
-      title.textContent = meal.title;
-      title.style.cssText = 'font-size:1.5rem;font-weight:bold;margin:0 0 5px 0;color:#ff6b35;';
-
-      const desc = document.createElement('p');
-      desc.textContent = meal.description;
-      desc.style.cssText = 'font-size:1rem;margin:0 0 5px 0;';
-
-      const time = document.createElement('p');
-      time.textContent = meal.time;
-      time.style.cssText = 'font-size:0.875rem;color:#aaa;margin:0;';
-
-      overlay.appendChild(title);
-      overlay.appendChild(desc);
-      overlay.appendChild(time);
-      slide.appendChild(img);
-      slide.appendChild(overlay);
-      container.appendChild(slide);
-    });
-
-    const dotsContainer = document.createElement('div');
-    dotsContainer.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;';
-    
-    CONFIG.meals.forEach((_, index) => {
-      const dot = document.createElement('button');
-      dot.className = 'slideshow-dot';
-      dot.style.cssText = `width:10px;height:10px;border-radius:50%;border:none;cursor:pointer;background:${index === 0 ? '#ff6b35' : 'rgba(255,255,255,0.5)'};`;
-      dot.onclick = () => goToSlide(index);
-      dotsContainer.appendChild(dot);
-    });
-    container.appendChild(dotsContainer);
-
-    startSlideshow();
-
-    return container;
-  }
-
-  function startSlideshow() {
-    if (slideshowInterval) clearInterval(slideshowInterval);
-    let currentSlide = 0;
-    
-    slideshowInterval = setInterval(() => {
-      const slides = document.querySelectorAll('.slideshow-slide');
-      const dots = document.querySelectorAll('.slideshow-dot');
-      
-      if (slides.length === 0) return;
-      
-      slides.forEach((slide, i) => {
-        slide.style.display = i === currentSlide ? 'block' : 'none';
-      });
-      
-      dots.forEach((dot, i) => {
-        dot.style.background = i === currentSlide ? '#ff6b35' : 'rgba(255,255,255,0.5)';
-      });
-      
-      currentSlide = (currentSlide + 1) % slides.length;
-    }, 4000);
-  }
-
-  function goToSlide(index) {
-    const slides = document.querySelectorAll('.slideshow-slide');
-    const dots = document.querySelectorAll('.slideshow-dot');
-    
-    slides.forEach((slide, i) => {
-      slide.style.display = i === index ? 'block' : 'none';
-    });
-    
-    dots.forEach((dot, i) => {
-      dot.style.background = i === index ? '#ff6b35' : 'rgba(255,255,255,0.5)';
-    });
-  }
-
-  // 4. Fix navigation links - make ecosystem and community links work
+  // 3. Navigation Interceptor (Fixes 404 Errors)
   function fixNavigationLinks() {
-    if (patchedElements.has('nav-links')) return;
-
-    // Find Ecosystem link and make it scroll to ecosystem section
-    const allLinks = document.querySelectorAll('a, button');
-    
-    allLinks.forEach(link => {
+    document.querySelectorAll('a, button').forEach(link => {
       const text = link.textContent?.trim().toLowerCase();
+      const routes = ['ecosystem', 'community', 'roadmap', 'how it works', 'meal plans', 'home'];
       
-      // Fix Ecosystem link
-      if (text === 'ecosystem') {
-        link.addEventListener('click', (e) => {
+      if (routes.some(r => text.includes(r))) {
+        link.onclick = (e) => {
           e.preventDefault();
-          const ecosystemSection = findSectionByText('The Ecosystem');
-          if (ecosystemSection) {
-            ecosystemSection.scrollIntoView({ behavior: 'smooth' });
-          }
-        });
-      }
-      
-      // Fix Community link
-      if (text === 'community') {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          const communitySection = findSectionByText('Join Our Community');
-          if (communitySection) {
-            communitySection.scrollIntoView({ behavior: 'smooth' });
-          }
-        });
+          if (text.includes('home')) { window.scrollTo({top: 0, behavior: 'smooth'}); return; }
+          
+          let search = text.includes('meal') ? 'Meal Plans' : text.includes('how') ? 'How it Works' : text.charAt(0).toUpperCase() + text.slice(1);
+          const target = Array.from(document.querySelectorAll('section, h2, h3')).find(el => el.textContent.includes(search));
+          if (target) target.scrollIntoView({ behavior: 'smooth' });
+        };
       }
     });
-
-    patchedElements.add('nav-links');
   }
 
-  function findSectionByText(searchText) {
-    const sections = document.querySelectorAll('section');
-    for (const section of sections) {
-      if (section.textContent.includes(searchText)) {
-        return section;
-      }
-    }
-    return null;
-  }
-
-    // 5. Hide waitlist stats (Force Hide Version)
+  // 4. Waitlist Stats (Deep Hide)
   function hideWaitlistStats() {
-    if (patchedElements.has('waitlist-stats')) return;
-
-    // 1. Target by Keywords
-    const statKeywords = ['Waitlisters', 'Tasks', 'Cities', 'taskers', 'waitlisters'];
-    
-    // 2. Target by common number patterns (e.g., "1,200+")
-    const allDivs = document.querySelectorAll('div, span, p, h4, h3');
-    
-    allDivs.forEach(el => {
-      const text = el.textContent?.trim() || "";
-      
-      // Check if the element contains any of our forbidden words
-      const containsKeyword = statKeywords.some(word => text.includes(word));
-      
-      // Check if it's a number-heavy element (like "5,000+")
-      const isNumberStat = /^\d+[,.\\d]*\+?$/.test(text);
-
-      if (containsKeyword || isNumberStat) {
-        // We only hide it if it's a small standalone piece of text
-        if (text.length < 30) { 
-          el.style.display = 'none';
-          
-          // Also hide the parent if it's just a small wrapper for this stat
-          if (el.parentElement && el.parentElement.textContent.trim().length < 40) {
-            el.parentElement.style.display = 'none';
-          }
+    const words = ['Waitlisters', 'Tasks Completed', 'Cities', 'Taskers'];
+    document.querySelectorAll('div, span, p, h4').forEach(el => {
+      if (words.some(word => el.textContent.includes(word))) {
+        // Find the container box for the stat and hide the whole thing
+        let container = el.closest('div');
+        if (container && container.textContent.trim().length < 60) {
+          container.style.display = 'none';
+          container.style.visibility = 'hidden';
         }
       }
     });
-
-    patchedElements.add('waitlist-stats');
   }
-  
-  
-  // 6. Fix responsiveness issues
+
+  // 5. General Responsiveness
   function fixResponsiveness() {
     if (patchedElements.has('responsiveness')) return;
-
-    // Add viewport meta if missing
-    let viewport = document.querySelector('meta[name="viewport"]');
-    if (!viewport) {
-      viewport = document.createElement('meta');
-      viewport.name = 'viewport';
-      viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
-      document.head.appendChild(viewport);
-    }
-
-    // Add comprehensive responsive styles
     const style = document.createElement('style');
     style.textContent = `
-      /* Responsive slideshow */
-      @media (max-width: 768px) {
-        .daylybread-slideshow {
-          max-width: 100% !important;
-        }
-        .daylybread-slideshow img {
-          height: 250px !important;
-        }
-        .slideshow-slide h3 {
-          font-size: 1.2rem !important;
-        }
-        .slideshow-slide p {
-          font-size: 0.875rem !important;
-        }
-      }
-      
-      @media (max-width: 480px) {
-        .daylybread-slideshow img {
-          height: 200px !important;
-        }
-      }
-      
-      /* Prevent overflow */
-      html, body {
-        max-width: 100vw;
-        overflow-x: hidden;
-      }
-      
-      section {
-        max-width: 100%;
-      }
-      
-      img {
-        max-width: 100%;
-        height: auto;
-      }
-      
-      /* Touch optimization */
-      button, a, [role="button"] {
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-      }
-      
-      /* Smooth scrolling */
-      html {
-        scroll-behavior: smooth;
-      }
-      
-      /* Prevent text zoom on mobile */
-      @media screen and (max-width: 768px) {
-        body {
-          -webkit-text-size-adjust: 100%;
-          -ms-text-size-adjust: 100%;
-        }
-      }
+      html, body { max-width: 100vw; overflow-x: hidden; scroll-behavior: smooth; }
+      iframe { pointer-events: none; }
+      .patched-logo { margin-right: 10px; }
+      @media (max-width: 768px) { .daylybread-slideshow img { height: 250px !important; } }
     `;
     document.head.appendChild(style);
-
-    // Fix event delegation for better responsiveness
-    document.addEventListener('touchstart', function() {}, { passive: true });
-    document.addEventListener('touchmove', function() {}, { passive: true });
-    
     patchedElements.add('responsiveness');
   }
 
-  // Initialize
+  // Initialize and watch for DOM changes
   function init() {
     runPatches();
-    
-    // Run multiple times to catch dynamically loaded content
-    [100, 300, 500, 800, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000].forEach(d => {
-      setTimeout(runPatches, d);
-    });
-
-    // Watch for DOM changes
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          runPatches();
-          break;
-        }
-      }
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    const observer = new MutationObserver(() => runPatches());
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // Start when ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  if (document.readyState === 'loading') { 
+    document.addEventListener('DOMContentLoaded', init); 
+  } else { 
+    init(); 
   }
-
-  // Handle route changes
-  let lastUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      patchedElements.clear();
-      if (slideshowInterval) clearInterval(slideshowInterval);
-      setTimeout(runPatches, 500);
-    }
-  }).observe(document, { subtree: true, childList: true });
 })();
