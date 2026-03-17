@@ -3,23 +3,23 @@
   'use strict';
 
   const CONFIG = {
-    heroVideoSrc: './assets/hero-video-new.mp4',
+    heroVideoSrc: '/Daylee-bread/assets/hero-video-new.mp4',
     logoSrc: './assets/logo-new.jpg',
     meals: [
       {
-        image: './assets/breakfast-new.jpg',
+        image: '/Daylee-bread/assets/breakfast-new.jpg',
         title: 'Breakfast',
         description: 'Akara and pap',
         time: '7am - 9am'
       },
       {
-        image: './assets/lunch-new.jpg',
+        image: '/Daylee-bread/assets/lunch-new.jpg',
         title: 'Afternoon',
         description: 'Rice, chicken and plantain',
         time: '1pm - 3pm'
       },
       {
-        image: './assets/dinner-new.jpg',
+        image: '/Daylee-bread/assets/dinner-new.jpg',
         title: 'Evening',
         description: 'Semo, vegetable soup, Eguisi and fish',
         time: '6pm - 7pm'
