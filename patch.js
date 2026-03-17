@@ -296,40 +296,41 @@
     return null;
   }
 
-    // 5. Hide waitlist stats - REVISED PRECISE VERSION
+    // 5. Hide waitlist stats (Force Hide Version)
   function hideWaitlistStats() {
     if (patchedElements.has('waitlist-stats')) return;
 
-    const statLabels = ['Waitlisters', 'Tasks Completed', 'Cities', 'taskers', 'waitlisters'];
-    const allElements = document.querySelectorAll('div, span, p, h4');
+    // 1. Target by Keywords
+    const statKeywords = ['Waitlisters', 'Tasks', 'Cities', 'taskers', 'waitlisters'];
     
-    for (const el of allElements) {
-      const text = el.textContent?.trim();
-      if (statLabels.includes(text)) {
-        let container = el.parentElement;
-        // Only climb 1 or 2 levels maximum, and keep the character count very low (e.g., 50)
-        for (let i = 0; i < 2 && container; i++) { 
-          const containerText = container.textContent || '';
-          if (/\d+/.test(containerText) && containerText.length < 60) {
-            container.style.display = 'none';
-            break;
-          }
-          container = container.parentElement;
-        }
-      }
-    }
+    // 2. Target by common number patterns (e.g., "1,200+")
+    const allDivs = document.querySelectorAll('div, span, p, h4, h3');
+    
+    allDivs.forEach(el => {
+      const text = el.textContent?.trim() || "";
+      
+      // Check if the element contains any of our forbidden words
+      const containsKeyword = statKeywords.some(word => text.includes(word));
+      
+      // Check if it's a number-heavy element (like "5,000+")
+      const isNumberStat = /^\d+[,.\d]*\+?$/.test(text);
 
-    // Pattern matching fix
-    document.querySelectorAll('div, p').forEach(div => {
-      const text = div.textContent || '';
-      // Only hide if the text is very short and matches the pattern
-      if ((text.match(/\d+.*Waitlisters/i) || text.match(/\d+.*Cities/i)) && text.length < 40) {
-        div.style.display = 'none';
+      if (containsKeyword || isNumberStat) {
+        // We only hide it if it's a small standalone piece of text
+        if (text.length < 30) { 
+          el.style.display = 'none';
+          
+          // Also hide the parent if it's just a small wrapper for this stat
+          if (el.parentElement && el.parentElement.textContent.trim().length < 40) {
+            el.parentElement.style.display = 'none';
+          }
+        }
       }
     });
 
     patchedElements.add('waitlist-stats');
   }
+  
   
 
   // 6. Fix responsiveness issues
