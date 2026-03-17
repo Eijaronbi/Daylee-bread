@@ -296,7 +296,7 @@
     return null;
   }
 
-  // 5. Hide waitlist stats
+    // 5. Hide waitlist stats - REVISED PRECISE VERSION
   function hideWaitlistStats() {
     if (patchedElements.has('waitlist-stats')) return;
 
@@ -307,9 +307,10 @@
       const text = el.textContent?.trim();
       if (statLabels.includes(text)) {
         let container = el.parentElement;
-        for (let i = 0; i < 4 && container; i++) {
+        // Only climb 1 or 2 levels maximum, and keep the character count very low (e.g., 50)
+        for (let i = 0; i < 2 && container; i++) { 
           const containerText = container.textContent || '';
-          if (/\d+/.test(containerText) && containerText.length < 200) {
+          if (/\d+/.test(containerText) && containerText.length < 60) {
             container.style.display = 'none';
             break;
           }
@@ -318,18 +319,18 @@
       }
     }
 
-    // Also hide by pattern matching
-    document.querySelectorAll('div').forEach(div => {
+    // Pattern matching fix
+    document.querySelectorAll('div, p').forEach(div => {
       const text = div.textContent || '';
-      if ((text.match(/\d+,?\d*\+?\s*Waitlisters/i) || 
-           text.match(/\d+,?\d*\+?\s*Tasks\s*Completed/i) || 
-           text.match(/\d+\s*Cities/i)) && text.length < 200) {
+      // Only hide if the text is very short and matches the pattern
+      if ((text.match(/\d+.*Waitlisters/i) || text.match(/\d+.*Cities/i)) && text.length < 40) {
         div.style.display = 'none';
       }
     });
 
     patchedElements.add('waitlist-stats');
   }
+  
 
   // 6. Fix responsiveness issues
   function fixResponsiveness() {
