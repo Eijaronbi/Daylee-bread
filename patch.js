@@ -89,35 +89,35 @@
     patchedElements.add('hero-video');
   }
 
-  // 2. Replace logo in header with new logo
+    // 2. Replace logo in header with new logo
   function patchLogo() {
     if (patchedElements.has('logo')) return;
 
     const header = document.querySelector('header, nav');
     if (!header) return;
 
-    // Look for SVG icon or existing logo
-    const svg = header.querySelector('svg');
-    if (svg) {
-      const img = document.createElement('img');
-      img.src = CONFIG.logoSrc;
-      img.alt = 'DaylyBread';
-      img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
-      svg.parentNode.replaceChild(img, svg);
-      patchedElements.add('logo');
-      return;
-    }
+    const targets = header.querySelectorAll('svg, img');
+    
+    targets.forEach(target => {
+      const rect = target.getBoundingClientRect();
+      const windowWidth = window.innerWidth;
 
-    // Look for existing logo image
-    const logoImgs = header.querySelectorAll('img');
-    for (const img of logoImgs) {
-      if (img.width < 100 || img.height < 100 || img.alt?.includes('logo') || img.alt?.includes('DaylyBread')) {
-        img.src = CONFIG.logoSrc;
-        img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
-        patchedElements.add('logo');
-        return;
+      // Only touch things on the left side (first 40% of the screen)
+      // This ignores the menu button on the right
+      if (rect.left > windowWidth * 0.4) {
+        return; 
       }
-    }
+
+      if (!patchedElements.has('logo')) {
+        const img = document.createElement('img');
+        img.src = CONFIG.logoSrc;
+        img.alt = 'DaylyBread';
+        img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
+        
+        target.parentNode.replaceChild(img, target);
+        patchedElements.add('logo');
+      }
+    });
   }
 
   // 3. Create meals slideshow
