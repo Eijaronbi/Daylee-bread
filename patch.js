@@ -38,7 +38,6 @@
     if (!heroSection) return;
 
     const iframe = document.createElement('iframe');
-    // playlist param + loop=1 ensures it doesn't stop
     iframe.src = `https://www.youtube.com/embed/${CONFIG.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${CONFIG.youtubeId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&showinfo=0`;
     
     // The "Cover" Hack: Ensures no black bars on any screen size
@@ -55,26 +54,48 @@
     patchedElements.add('hero-video');
   }
 
-  // 2. Logo Swap (Anti-Duplicate Guard)
+  // 2. Logo Swap (Surgical Targeting - PROTECTS SOCIAL ICONS)
   function patchLogo() {
-    const targets = document.querySelectorAll('header img, header svg, footer img, footer svg, .brand-icon');
-    
-    targets.forEach(target => {
-      // Prevents the "Stacking Logos" bug by checking for the marker class
-      if (target.parentElement.querySelector('.patched-logo')) return;
+    // A. Target Header Logo
+    const header = document.querySelector('header, nav');
+    if (header && !patchedElements.has('logo-header-surgical')) {
+      const potentialLogos = header.querySelectorAll('img, svg');
+      const protectedKeywords = ['x', 'twitter', 'telegram', 'discord', 'menu', 'search'];
+      
+      potentialLogos.forEach(logo => {
+        if (patchedElements.has('logo-header-surgical')) return;
+        const rect = logo.getBoundingClientRect();
+        const nearbyText = logo.parentElement.textContent.trim().toLowerCase();
+        const isProtected = protectedKeywords.some(key => nearbyText.includes(key));
+        
+        if (rect.left < window.innerWidth * 0.4 && !isProtected) {
+          const img = document.createElement('img');
+          img.src = CONFIG.logoSrc;
+          img.className = 'patched-logo';
+          img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;';
+          logo.style.display = 'none';
+          logo.parentElement.insertBefore(img, logo);
+          patchedElements.add('logo-header-surgical');
+        }
+      });
+    }
 
-      const rect = target.getBoundingClientRect();
-      // Target left-side (header) or anything in the footer
-      if (rect.left < window.innerWidth * 0.4 || target.closest('footer')) {
+    // B. Target Footer Brand (Protects social icons in other blocks)
+    const footer = document.querySelector('footer');
+    if (footer) {
+      const brandElements = Array.from(footer.querySelectorAll('div, p, h4')).filter(el => 
+        el.textContent.includes('DAYLYBREAD')
+      );
+      
+      brandElements.forEach(el => {
+        if (el.querySelector('.patched-logo')) return;
         const img = document.createElement('img');
         img.src = CONFIG.logoSrc;
-        img.className = 'patched-logo'; 
-        img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;display:inline-block;';
-        
-        target.style.display = 'none'; // Hide the old orange icon
-        target.parentElement.insertBefore(img, target);
-      }
-    });
+        img.className = 'patched-logo';
+        img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;margin-bottom:10px;display:block;';
+        el.prepend(img);
+      });
+    }
   }
 
   // 3. Navigation Interceptor (Fixes 404 Errors)
@@ -101,7 +122,6 @@
     const words = ['Waitlisters', 'Tasks Completed', 'Cities', 'Taskers'];
     document.querySelectorAll('div, span, p, h4').forEach(el => {
       if (words.some(word => el.textContent.includes(word))) {
-        // Find the container box for the stat and hide the whole thing
         let container = el.closest('div');
         if (container && container.textContent.trim().length < 60) {
           container.style.display = 'none';
@@ -119,13 +139,13 @@
       html, body { max-width: 100vw; overflow-x: hidden; scroll-behavior: smooth; }
       iframe { pointer-events: none; }
       .patched-logo { margin-right: 10px; }
+      footer { text-align: left !important; }
       @media (max-width: 768px) { .daylybread-slideshow img { height: 250px !important; } }
     `;
     document.head.appendChild(style);
     patchedElements.add('responsiveness');
   }
 
-  // Initialize and watch for DOM changes
   function init() {
     runPatches();
     const observer = new MutationObserver(() => runPatches());
@@ -138,3 +158,4 @@
     init(); 
   }
 })();
+                            
