@@ -318,6 +318,18 @@
     return false;
   }
 
+  function buildRouteUrl(pathname = '/') {
+    const cleanPath = pathname === '/' ? '' : pathname.replace(/^\//, '');
+    return new URL(cleanPath, ROOT_URL).href;
+  }
+
+  function navigateToRoute(pathname = '/') {
+    const nextUrl = buildRouteUrl(pathname);
+    if (location.href !== nextUrl) {
+      window.location.assign(nextUrl);
+    }
+  }
+
   function navigateToHomeSection(name) {
     sessionStorage.setItem(SECTION_STORAGE_KEY, name);
     const homeUrl = new URL(ROOT_URL, window.location.origin);
@@ -329,31 +341,48 @@
   }
 
   function fixNavigationLinks() {
-    const sectionNames = ['home', 'ecosystem', 'community', 'roadmap', 'how it works', 'meal plans'];
+    const sectionNames = ['home', 'ecosystem', 'community', 'how it works', 'meal plans'];
+    const routeNames = {
+      home: '/',
+      waitlist: '/waitlist',
+      roadmap: '/roadmap'
+    };
 
     document.querySelectorAll('a, button').forEach((link) => {
+      if (link.dataset.daylybreadPatchedNav === 'true') return;
+
       const text = normalizeText(link.textContent);
-      const matched = sectionNames.find((name) => text === name || text.includes(name));
-      if (!matched || link.dataset.daylybreadPatchedNav === 'true') return;
+      const href = normalizeText(link.getAttribute?.('href'));
+      const matchedSection = sectionNames.find((name) => text === name || text.includes(name));
+      const matchedRoute = Object.keys(routeNames).find((name) => (
+        text === name || text.includes(name) || href === routeNames[name]
+      ));
+
+      if (!matchedSection && !matchedRoute) return;
 
       link.dataset.daylybreadPatchedNav = 'true';
       link.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
 
-        if (matched === 'home') {
-          if (isHomePath()) {
-            ensureScrollTop(true);
-          } else {
-            navigateToHomeSection('home');
+        if (matchedRoute) {
+          if (matchedRoute === 'home') {
+            if (isHomePath()) {
+              ensureScrollTop(true);
+            } else {
+              navigateToRoute('/');
+            }
+            return;
           }
+
+          navigateToRoute(routeNames[matchedRoute]);
           return;
         }
 
         if (isHomePath()) {
-          goToSection(matched);
+          goToSection(matchedSection);
         } else {
-          navigateToHomeSection(matched);
+          navigateToHomeSection(matchedSection);
         }
       }, true);
     });
@@ -400,16 +429,17 @@
 
       #${HERO_IFRAME_ID} {
         position: absolute !important;
-        inset: 50% auto auto 50% !important;
-        width: 100vw !important;
-        height: 56.25vw !important;
-        min-width: 177.77vh !important;
-        min-height: 100svh !important;
+        top: 50% !important;
+        left: 50% !important;
+        width: 120% !important;
+        height: 120% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
         transform: translate(-50%, -50%) !important;
         border: 0 !important;
         pointer-events: none !important;
         z-index: 0 !important;
-        filter: brightness(1.2) saturate(1.08) contrast(1.03);
+        filter: brightness(1.12) saturate(1.04) contrast(1.01);
       }
 
       #${HERO_OVERLAY_ID} {
@@ -569,8 +599,8 @@
 
       @media (max-width: 640px) {
         #${HERO_IFRAME_ID} {
-          width: 140vw !important;
-          height: 78.75vw !important;
+          width: 165% !important;
+          height: 115% !important;
         }
 
         .daylybread-slide img {
