@@ -1,460 +1,644 @@
-// DaylyBread Website Patch Script
 (function() {
   'use strict';
 
+  const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/patch.js'));
+  const scriptUrl = script?.src ? new URL(script.src, window.location.href) : new URL(window.location.href);
+  const BASE_PATH = scriptUrl.pathname.replace(/\/patch\.js$/, '') || '';
+  const ROOT_URL = `${window.location.origin}${BASE_PATH || ''}/`.replace(/([^:]\/)\/+/g, '$1');
+  const SECTION_STORAGE_KEY = 'daylybread:pending-section';
+  const PATCH_STYLE_ID = 'daylybread-runtime-patch-styles';
+  const HERO_IFRAME_ID = 'daylybread-hero-iframe';
+  const HERO_OVERLAY_ID = 'daylybread-hero-overlay';
+  const SLIDESHOW_ID = 'daylybread-meals-slideshow';
+  const HEADER_LOGO_CLASS = 'daylybread-header-logo';
+  const patchedElements = new Set();
+  let slideshowTimer = null;
+  let lastUrl = location.href;
+
+  function resolveAssetPath(fileName) {
+    return `${BASE_PATH}/assets/${fileName}`;
+  }
+
   const CONFIG = {
-    heroVideoSrc: '/Daylee-bread/assets/hero-video-new.mp4',
-    logoSrc: './assets/logo-new.jpg',
+    youtubeId: 'wvZeYWiL-J8',
+    logoFileName: 'logo-new.jpg',
+    logoSrc: resolveAssetPath('logo-new.jpg'),
     meals: [
       {
-        image: '/Daylee-bread/assets/breakfast-new.jpg',
+        imageFileName: 'breakfast-new.jpg',
+        image: resolveAssetPath('breakfast-new.jpg'),
         title: 'Breakfast',
         description: 'Akara and pap',
         time: '7am - 9am'
       },
       {
-        image: '/Daylee-bread/assets/lunch-new.jpg',
+        imageFileName: 'lunch-new.jpg',
+        image: resolveAssetPath('lunch-new.jpg'),
         title: 'Afternoon',
         description: 'Rice, chicken and plantain',
         time: '1pm - 3pm'
       },
       {
-        image: '/Daylee-bread/assets/dinner-new.jpg',
+        imageFileName: 'dinner-new.jpg',
+        image: resolveAssetPath('dinner-new.jpg'),
         title: 'Evening',
         description: 'Semo, vegetable soup, Eguisi and fish',
         time: '6pm - 7pm'
       }
-    ]
+    ],
+    sectionTargets: {
+      home: ['EAT', 'EARN', 'BELONG'],
+      ecosystem: ['The Ecosystem', 'Ecosystem'],
+      community: ['Join Our Community', 'Community'],
+      roadmap: ['Roadmap'],
+      'how it works': ['How It Works', 'How it Works'],
+      'meal plans': ['Meal Plans', 'Our Meal Plans']
+    }
   };
 
-  const patchedElements = new Set();
-  let slideshowInterval = null;
-
-  function runPatches() {
-    patchHeroVideo();
-    patchLogo();
-    patchMealsSlideshow();
-    fixNavigationLinks();
-    hideWaitlistStats();
-    fixResponsiveness();
+  function normalizeText(value) {
+    return (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  // 1. Add video background to hero section
-  function patchHeroVideo() {
-    if (patchedElements.has('hero-video')) return;
-    
-    const sections = document.querySelectorAll('section');
-    let heroSection = null;
-    
-    for (const section of sections) {
-      const text = section.textContent;
-      if (text.includes('EAT') && text.includes('EARN') && text.includes('BELONG')) {
-        heroSection = section;
-        break;
-      }
+  function isHomePath(pathname = location.pathname) {
+    const trimmedBase = BASE_PATH.replace(/\/$/, '');
+    return pathname === `${trimmedBase}` || pathname === `${trimmedBase}/` || pathname === '/' || pathname === '';
+  }
+
+  function ensureScrollTop(force = false) {
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
     }
-    
-    if (!heroSection) return;
-    
-    // Remove existing video if any
-    const existingVideo = heroSection.querySelector('video');
-    if (existingVideo) existingVideo.remove();
-    const existingOverlay = heroSection.querySelector('.hero-overlay');
-    if (existingOverlay) existingOverlay.remove();
 
-    const video = document.createElement('video');
-    video.src = CONFIG.heroVideoSrc;
-    video.autoplay = true;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.className = 'hero-video-bg';
-    video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;';
+    if (force || !sessionStorage.getItem('daylybread:did-scroll-top')) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      sessionStorage.setItem('daylybread:did-scroll-top', 'true');
+      setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 60);
+      setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 240);
+    }
+  }
 
-    const overlay = document.createElement('div');
-    overlay.className = 'hero-overlay';
-    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);z-index:1;';
+  function findSectionByMarkers(markers) {
+    const sections = Array.from(document.querySelectorAll('section'));
+    return sections.find((section) => {
+      const text = section.textContent || '';
+      return markers.every((marker) => text.includes(marker));
+    }) || null;
+  }
 
-    heroSection.style.cssText += 'position:relative;overflow:hidden;min-height:100vh;';
-    heroSection.insertBefore(overlay, heroSection.firstChild);
-    heroSection.insertBefore(video, heroSection.firstChild);
+  function findSectionByName(name) {
+    const markers = CONFIG.sectionTargets[name] || [name];
+    const sections = Array.from(document.querySelectorAll('section'));
 
-    // Ensure content is above video
-    const children = heroSection.querySelectorAll(':scope > *:not(video):not(.hero-overlay)');
-    children.forEach(child => {
-      child.style.position = 'relative';
-      child.style.zIndex = '2';
+    for (const marker of markers) {
+      const direct = sections.find((section) => (section.textContent || '').includes(marker));
+      if (direct) return direct;
+    }
+
+    const heading = Array.from(document.querySelectorAll('h1, h2, h3, h4')).find((node) => {
+      const text = node.textContent || '';
+      return markers.some((marker) => text.includes(marker));
     });
 
-    patchedElements.add('hero-video');
+    return heading ? heading.closest('section') || heading : null;
   }
 
-  // 2. Replace logo in header with new logo
-  function patchLogo() {
-    if (patchedElements.has('logo')) return;
+  function clearDuplicatePatchedLogos() {
+    document.querySelectorAll('.patched-logo').forEach((node) => node.remove());
+    document.querySelectorAll(`img[src*="${CONFIG.logoSrc.split('/').pop()}"]`).forEach((img) => {
+      if (!img.closest('header, nav')) {
+        img.remove();
+      }
+    });
+  }
 
+  function patchHeaderLogo() {
     const header = document.querySelector('header, nav');
     if (!header) return;
 
-    // Look for SVG icon or existing logo
-    const svg = header.querySelector('svg');
-    if (svg) {
-      const img = document.createElement('img');
-      img.src = CONFIG.logoSrc;
-      img.alt = 'DaylyBread';
-      img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
-      svg.parentNode.replaceChild(img, svg);
-      patchedElements.add('logo');
-      return;
-    }
+    clearDuplicatePatchedLogos();
 
-    // Look for existing logo image
-    const logoImgs = header.querySelectorAll('img');
-    for (const img of logoImgs) {
-      if (img.width < 100  img.height < 100  img.alt?.includes('logo') || img.alt?.includes('DaylyBread')) {
-        img.src = CONFIG.logoSrc;
-        img.style.cssText = 'width:40px;height:40px;object-fit:contain;border-radius:8px;display:block;';
-        patchedElements.add('logo');
-        return;
+    const brand = Array.from(header.querySelectorAll('a, div, button')).find((node) =>
+      normalizeText(node.textContent).includes('daylybread')
+    );
+
+    if (!brand) return;
+
+    let logo = brand.querySelector(`img.${HEADER_LOGO_CLASS}`);
+    if (!logo) {
+      logo = document.createElement('img');
+      logo.className = HEADER_LOGO_CLASS;
+      logo.alt = 'DaylyBread logo';
+      logo.decoding = 'async';
+      logo.loading = 'eager';
+      logo.src = CONFIG.logoSrc;
+      const oldIcon = brand.querySelector('svg, img');
+      if (oldIcon) {
+        oldIcon.replaceWith(logo);
+      } else {
+        brand.prepend(logo);
       }
     }
+
+    logo.src = CONFIG.logoSrc;
   }
 
-  // 3. Create meals slideshow
-  function patchMealsSlideshow() {
-    if (patchedElements.has('meals-slideshow')) return;
-    if (document.querySelector('.daylybread-slideshow')) return;
+  function patchHeroVideo() {
+    const heroSection = findSectionByMarkers(['EAT', 'EARN']) || findSectionByName('home');
+    if (!heroSection) return;
 
-const sections = document.querySelectorAll('section');
-    let mealSection = null;
-    
-    for (const section of sections) {
-      const text = section.textContent;
-      if (text.includes('Meal Plans')  text.includes('Daily Plan')  text.includes('₦10,000')) {
-        mealSection = section;
-        break;
-      }
+    const existingFrame = heroSection.querySelector(`#${HERO_IFRAME_ID}`);
+    const existingOverlay = heroSection.querySelector(`#${HERO_OVERLAY_ID}`);
+    heroSection.querySelectorAll('video.hero-video-bg').forEach((node) => node.remove());
+
+    if (!existingFrame) {
+      const iframe = document.createElement('iframe');
+      iframe.id = HERO_IFRAME_ID;
+      iframe.title = 'DaylyBread hero video';
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      iframe.src = `https://www.youtube.com/embed/${CONFIG.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${CONFIG.youtubeId}&controls=0&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`;
+      heroSection.prepend(iframe);
     }
 
-    if (!mealSection) return;
-
-    const existingImages = mealSection.querySelectorAll('img');
-    if (existingImages.length > 0) {
-      const targetImg = existingImages[0];
-      const slideshowContainer = createSlideshow();
-      targetImg.parentNode.replaceChild(slideshowContainer, targetImg);
-      
-      for (let i = 1; i < existingImages.length; i++) {
-        const img = existingImages[i];
-        if (img.closest('.daylybread-slideshow')) continue;
-        const parent = img.parentElement;
-        if (parent && parent.children.length === 1) {
-          parent.style.display = 'none';
-        } else {
-          img.style.display = 'none';
-        }
-      }
+    if (!existingOverlay) {
+      const overlay = document.createElement('div');
+      overlay.id = HERO_OVERLAY_ID;
+      heroSection.prepend(overlay);
     }
 
-    patchedElements.add('meals-slideshow');
+    heroSection.classList.add('daylybread-patched-hero');
+    Array.from(heroSection.children).forEach((child) => {
+      if (child.id !== HERO_IFRAME_ID && child.id !== HERO_OVERLAY_ID) {
+        child.classList.add('daylybread-hero-content');
+      }
+    });
   }
 
-  function createSlideshow() {
+  function buildSlideshow() {
     const container = document.createElement('div');
+    container.id = SLIDESHOW_ID;
     container.className = 'daylybread-slideshow';
-    container.style.cssText = 'position:relative;width:100%;max-width:500px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
+
+    const stage = document.createElement('div');
+    stage.className = 'daylybread-slideshow-stage';
+    container.appendChild(stage);
+
+    const dots = document.createElement('div');
+    dots.className = 'daylybread-slideshow-dots';
 
     CONFIG.meals.forEach((meal, index) => {
-      const slide = document.createElement('div');
-      slide.className = 'slideshow-slide';
-      slide.style.cssText = position:relative;width:100%;display:${index === 0 ? 'block' : 'none'};;
-      slide.dataset.index = index;
+      const slide = document.createElement('article');
+      slide.className = 'daylybread-slide';
+      slide.dataset.index = String(index);
+      slide.hidden = index !== 0;
 
-      const img = document.createElement('img');
-      img.src = meal.image;
-      img.alt = meal.title;
-      img.style.cssText = 'width:100%;height:350px;object-fit:cover;display:block;';
+      slide.innerHTML = `
+        <img src="${meal.image}" alt="${meal.title}" loading="eager" />
+        <div class="daylybread-slide-overlay">
+          <p class="daylybread-slide-kicker">${meal.time}</p>
+          <h3>${meal.title}</h3>
+          <p>${meal.description}</p>
+        </div>
+      `;
 
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:30px 20px 20px;color:white;';
+      stage.appendChild(slide);
 
-      const title = document.createElement('h3');
-      title.textContent = meal.title;
-      title.style.cssText = 'font-size:1.5rem;font-weight:bold;margin:0 0 5px 0;color:#ff6b35;';
-
-      const desc = document.createElement('p');
-      desc.textContent = meal.description;
-      desc.style.cssText = 'font-size:1rem;margin:0 0 5px 0;';
-
-      const time = document.createElement('p');
-      time.textContent = meal.time;
-      time.style.cssText = 'font-size:0.875rem;color:#aaa;margin:0;';
-
-      overlay.appendChild(title);
-      overlay.appendChild(desc);
-      overlay.appendChild(time);
-      slide.appendChild(img);
-      slide.appendChild(overlay);
-      container.appendChild(slide);
-    });
-
-    const dotsContainer = document.createElement('div');
-    dotsContainer.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;';
-    
-    CONFIG.meals.forEach((_, index) => {
       const dot = document.createElement('button');
-      dot.className = 'slideshow-dot';
-      dot.style.cssText = width:10px;height:10px;border-radius:50%;border:none;cursor:pointer;background:${index === 0 ? '#ff6b35' : 'rgba(255,255,255,0.5)'};;
-      dot.onclick = () => goToSlide(index);
-      dotsContainer.appendChild(dot);
+      dot.type = 'button';
+      dot.className = 'daylybread-slideshow-dot';
+      dot.setAttribute('aria-label', `Show ${meal.title}`);
+      dot.dataset.index = String(index);
+      if (index === 0) dot.setAttribute('aria-current', 'true');
+      dot.addEventListener('click', () => showSlide(index));
+      dots.appendChild(dot);
     });
-    container.appendChild(dotsContainer);
 
-    startSlideshow();
-
+    container.appendChild(dots);
     return container;
   }
 
+  function showSlide(index) {
+    const slides = Array.from(document.querySelectorAll('.daylybread-slide'));
+    const dots = Array.from(document.querySelectorAll('.daylybread-slideshow-dot'));
+    if (!slides.length) return;
+
+    slides.forEach((slide, slideIndex) => {
+      slide.hidden = slideIndex !== index;
+    });
+
+    dots.forEach((dot, dotIndex) => {
+      if (dotIndex === index) {
+        dot.setAttribute('aria-current', 'true');
+      } else {
+        dot.removeAttribute('aria-current');
+      }
+    });
+  }
+
   function startSlideshow() {
-    if (slideshowInterval) clearInterval(slideshowInterval);
-    let currentSlide = 0;
-    
-    slideshowInterval = setInterval(() => {
-      const slides = document.querySelectorAll('.slideshow-slide');
-      const dots = document.querySelectorAll('.slideshow-dot');
-      
-      if (slides.length === 0) return;
-      
-      slides.forEach((slide, i) => {
+    if (slideshowTimer) {
+      clearInterval(slideshowTimer);
+    }
 
-slide.style.display = i === currentSlide ? 'block' : 'none';
+    slideshowTimer = setInterval(() => {
+      const slides = Array.from(document.querySelectorAll('.daylybread-slide'));
+      if (!slides.length) return;
+      const currentIndex = slides.findIndex((slide) => !slide.hidden);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % slides.length : 0;
+      showSlide(nextIndex);
+    }, 4200);
+  }
+
+  function patchMealsSlideshow() {
+    const mealSection = findSectionByName('meal plans');
+    if (!mealSection) return;
+
+    const existing = mealSection.querySelector(`#${SLIDESHOW_ID}`);
+    if (!existing) {
+      const brokenImage = Array.from(mealSection.querySelectorAll('img')).find((img) => {
+        const src = img.getAttribute('src') || '';
+        return src.includes('/images/meal-plan.jpg') || normalizeText(img.alt).includes('meal plan');
       });
-      
-      dots.forEach((dot, i) => {
-        dot.style.background = i === currentSlide ? '#ff6b35' : 'rgba(255,255,255,0.5)';
-      });
-      
-      currentSlide = (currentSlide + 1) % slides.length;
-    }, 4000);
-  }
 
-  function goToSlide(index) {
-    const slides = document.querySelectorAll('.slideshow-slide');
-    const dots = document.querySelectorAll('.slideshow-dot');
-    
-    slides.forEach((slide, i) => {
-      slide.style.display = i === index ? 'block' : 'none';
-    });
-    
-    dots.forEach((dot, i) => {
-      dot.style.background = i === index ? '#ff6b35' : 'rgba(255,255,255,0.5)';
-    });
-  }
-
-  // 4. Fix navigation links - make ecosystem and community links work
-  function fixNavigationLinks() {
-    if (patchedElements.has('nav-links')) return;
-
-    // Find Ecosystem link and make it scroll to ecosystem section
-    const allLinks = document.querySelectorAll('a, button');
-    
-    allLinks.forEach(link => {
-      const text = link.textContent?.trim().toLowerCase();
-      
-      // Fix Ecosystem link
-      if (text === 'ecosystem') {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          const ecosystemSection = findSectionByText('The Ecosystem');
-          if (ecosystemSection) {
-            ecosystemSection.scrollIntoView({ behavior: 'smooth' });
-          }
-        });
-      }
-      
-      // Fix Community link
-      if (text === 'community') {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          const communitySection = findSectionByText('Join Our Community');
-          if (communitySection) {
-            communitySection.scrollIntoView({ behavior: 'smooth' });
-          }
-        });
-      }
-    });
-
-    patchedElements.add('nav-links');
-  }
-
-  function findSectionByText(searchText) {
-    const sections = document.querySelectorAll('section');
-    for (const section of sections) {
-      if (section.textContent.includes(searchText)) {
-        return section;
+      const slideshow = buildSlideshow();
+      if (brokenImage) {
+        brokenImage.replaceWith(slideshow);
+      } else {
+        const headingBlock = mealSection.querySelector('h2, h3')?.parentElement || mealSection.firstElementChild || mealSection;
+        headingBlock.insertAdjacentElement('afterend', slideshow);
       }
     }
-    return null;
+
+    mealSection.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      if (src.includes('/images/meal-plan.jpg')) {
+        img.closest('div')?.remove();
+      }
+    });
+
+    startSlideshow();
   }
 
-  // 5. Hide waitlist stats
   function hideWaitlistStats() {
-    if (patchedElements.has('waitlist-stats')) return;
+    const statLabels = ['Waitlisters', 'Tasks Completed', 'Cities', 'Taskers'];
+    const statBlocks = [];
 
-    const statLabels = ['Waitlisters', 'Tasks Completed', 'Cities', 'taskers', 'waitlisters'];
-    const allElements = document.querySelectorAll('div, span, p, h4');
-    
-    for (const el of allElements) {
-      const text = el.textContent?.trim();
+    document.querySelectorAll('p, span, div, h3, h4').forEach((node) => {
+      const text = (node.textContent || '').trim();
       if (statLabels.includes(text)) {
-        let container = el.parentElement;
-        for (let i = 0; i < 4 && container; i++) {
-          const containerText = container.textContent || '';
-          if (/\d+/.test(containerText) && containerText.length < 200) {
-            container.style.display = 'none';
-            break;
-          }
-          container = container.parentElement;
-        }
-      }
-    }
-
-    // Also hide by pattern matching
-    document.querySelectorAll('div').forEach(div => {
-      const text = div.textContent || '';
-      if ((text.match(/\d+,?\d*\+?\s*Waitlisters/i) || 
-           text.match(/\d+,?\d*\+?\s*Tasks\s*Completed/i) || 
-           text.match(/\d+\s*Cities/i)) && text.length < 200) {
-        div.style.display = 'none';
+        const block = node.closest('div');
+        if (block) statBlocks.push(block);
       }
     });
 
-    patchedElements.add('waitlist-stats');
+    statBlocks.forEach((block) => {
+      block.style.display = 'none';
+    });
+
+    const rows = Array.from(document.querySelectorAll('div')).filter((node) => {
+      const text = node.textContent || '';
+      return statLabels.filter((label) => text.includes(label)).length >= 2;
+    });
+
+    rows.forEach((row) => {
+      row.style.display = 'none';
+    });
   }
 
-  // 6. Fix responsiveness issues
-  function fixResponsiveness() {
-    if (patchedElements.has('responsiveness')) return;
+  function goToSection(name) {
+    const target = findSectionByName(name);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (name === 'home') {
+        ensureScrollTop(true);
+      }
+      return true;
+    }
+    return false;
+  }
 
-    // Add viewport meta if missing
-    let viewport = document.querySelector('meta[name="viewport"]');
-    if (!viewport) {
-      viewport = document.createElement('meta');
-      viewport.name = 'viewport';
-      viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
-      document.head.appendChild(viewport);
+  function navigateToHomeSection(name) {
+    sessionStorage.setItem(SECTION_STORAGE_KEY, name);
+    const homeUrl = new URL(ROOT_URL, window.location.origin);
+    if (location.href !== homeUrl.href) {
+      window.location.assign(homeUrl.href);
+    } else {
+      setTimeout(() => goToSection(name), 100);
+    }
+  }
+
+  function fixNavigationLinks() {
+    const sectionNames = ['home', 'ecosystem', 'community', 'roadmap', 'how it works', 'meal plans'];
+
+    document.querySelectorAll('a, button').forEach((link) => {
+      const text = normalizeText(link.textContent);
+      const matched = sectionNames.find((name) => text === name || text.includes(name));
+      if (!matched || link.dataset.daylybreadPatchedNav === 'true') return;
+
+      link.dataset.daylybreadPatchedNav = 'true';
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (matched === 'home') {
+          if (isHomePath()) {
+            ensureScrollTop(true);
+          } else {
+            navigateToHomeSection('home');
+          }
+          return;
+        }
+
+        if (isHomePath()) {
+          goToSection(matched);
+        } else {
+          navigateToHomeSection(matched);
+        }
+      }, true);
+    });
+  }
+
+  function applyPendingSectionNavigation() {
+    const pending = sessionStorage.getItem(SECTION_STORAGE_KEY);
+    if (!pending || !isHomePath()) return;
+
+    if (pending === 'home') {
+      ensureScrollTop(true);
+      sessionStorage.removeItem(SECTION_STORAGE_KEY);
+      return;
     }
 
-    // Add comprehensive responsive styles
+    const target = findSectionByName(pending);
+    if (target) {
+      setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
+      sessionStorage.removeItem(SECTION_STORAGE_KEY);
+    }
+  }
 
-const style = document.createElement('style');
-    style.textContent = 
-      /* Responsive slideshow */
-      @media (max-width: 768px) {
-        .daylybread-slideshow {
-          max-width: 100% !important;
-        }
-        .daylybread-slideshow img {
-          height: 250px !important;
-        }
-        .slideshow-slide h3 {
-          font-size: 1.2rem !important;
-        }
-        .slideshow-slide p {
-          font-size: 0.875rem !important;
-        }
-      }
-      
-      @media (max-width: 480px) {
-        .daylybread-slideshow img {
-          height: 200px !important;
-        }
-      }
-      
-      /* Prevent overflow */
+  function fixResponsiveness() {
+    if (document.getElementById(PATCH_STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = PATCH_STYLE_ID;
+    style.textContent = `
       html, body {
-        max-width: 100vw;
+        max-width: 100%;
         overflow-x: hidden;
-      }
-      
-      section {
-        max-width: 100%;
-      }
-      
-      img {
-        max-width: 100%;
-        height: auto;
-      }
-      
-      /* Touch optimization */
-      button, a, [role="button"] {
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-      }
-      
-      /* Smooth scrolling */
-      html {
         scroll-behavior: smooth;
       }
-      
-      /* Prevent text zoom on mobile */
-      @media screen and (max-width: 768px) {
-        body {
-          -webkit-text-size-adjust: 100%;
-          -ms-text-size-adjust: 100%;
+
+      .daylybread-patched-hero {
+        position: relative !important;
+        overflow: hidden !important;
+        min-height: 100svh !important;
+        isolation: isolate;
+        background:
+          radial-gradient(circle at top, rgba(255, 137, 90, 0.28), transparent 38%),
+          linear-gradient(180deg, rgba(16, 16, 16, 0.18) 0%, rgba(10, 10, 10, 0.52) 100%) !important;
+      }
+
+      #${HERO_IFRAME_ID} {
+        position: absolute !important;
+        inset: 50% auto auto 50% !important;
+        width: 100vw !important;
+        height: 56.25vw !important;
+        min-width: 177.77vh !important;
+        min-height: 100svh !important;
+        transform: translate(-50%, -50%) !important;
+        border: 0 !important;
+        pointer-events: none !important;
+        z-index: 0 !important;
+        filter: brightness(1.2) saturate(1.08) contrast(1.03);
+      }
+
+      #${HERO_OVERLAY_ID} {
+        position: absolute !important;
+        inset: 0 !important;
+        background:
+          linear-gradient(180deg, rgba(7, 7, 7, 0.22) 0%, rgba(7, 7, 7, 0.5) 60%, rgba(7, 7, 7, 0.72) 100%) !important;
+        z-index: 1 !important;
+      }
+
+      .daylybread-hero-content {
+        position: relative !important;
+        z-index: 2 !important;
+      }
+
+      .${HEADER_LOGO_CLASS} {
+        width: 42px !important;
+        height: 42px !important;
+        border-radius: 12px !important;
+        object-fit: cover !important;
+        flex-shrink: 0;
+      }
+
+      #${SLIDESHOW_ID} {
+        width: 100%;
+        max-width: 64rem;
+        margin: 0 auto 3rem;
+        border-radius: 1.5rem;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(20,20,20,0.92);
+        box-shadow: 0 24px 80px rgba(0,0,0,0.42);
+      }
+
+      .daylybread-slideshow-stage {
+        position: relative;
+      }
+
+      .daylybread-slide {
+        position: relative;
+      }
+
+      .daylybread-slide[hidden] {
+        display: none !important;
+      }
+
+      .daylybread-slide img {
+        width: 100%;
+        height: clamp(260px, 48vw, 520px);
+        object-fit: cover;
+        display: block;
+      }
+
+      .daylybread-slide-overlay {
+        position: absolute;
+        inset: auto 0 0 0;
+        padding: 1.5rem;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.82) 100%);
+      }
+
+      .daylybread-slide-kicker {
+        margin: 0 0 0.35rem;
+        color: #ff8a65;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .daylybread-slide-overlay h3 {
+        margin: 0 0 0.25rem;
+        font-size: clamp(1.4rem, 3vw, 2rem);
+        font-weight: 800;
+        color: #fff;
+      }
+
+      .daylybread-slide-overlay p:last-child {
+        margin: 0;
+        color: rgba(255,255,255,0.82);
+      }
+
+      .daylybread-slideshow-dots {
+        display: flex;
+        justify-content: center;
+        gap: 0.65rem;
+        padding: 1rem 1rem 1.25rem;
+      }
+
+      .daylybread-slideshow-dot {
+        width: 0.78rem;
+        height: 0.78rem;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.32);
+      }
+
+      .daylybread-slideshow-dot[aria-current='true'] {
+        background: #ff5722;
+        transform: scale(1.08);
+      }
+
+      footer {
+        overflow-x: hidden;
+      }
+
+      footer ul,
+      footer .space-y-2,
+      footer p,
+      footer a {
+        word-break: break-word;
+      }
+
+      footer .grid {
+        align-items: start;
+      }
+
+      footer .flex.gap-6 {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      @media (max-width: 900px) {
+        footer .gap-12 {
+          gap: 2rem !important;
         }
       }
-    ;
+
+      @media (max-width: 768px) {
+        footer {
+          text-align: center;
+        }
+
+        footer .grid {
+          gap: 2rem !important;
+        }
+
+        footer .flex.items-center.gap-3,
+        footer .flex.gap-3,
+        footer .pt-8.border-t.border-white\/5.flex.flex-col.sm\:flex-row.justify-between.items-center.gap-4 {
+          justify-content: center;
+        }
+
+        .${HEADER_LOGO_CLASS} {
+          width: 38px !important;
+          height: 38px !important;
+        }
+
+        #${SLIDESHOW_ID} {
+          border-radius: 1.15rem;
+          margin-bottom: 2rem;
+        }
+
+        .daylybread-slide-overlay {
+          padding: 1rem;
+        }
+      }
+
+      @media (max-width: 640px) {
+        #${HERO_IFRAME_ID} {
+          width: 140vw !important;
+          height: 78.75vw !important;
+        }
+
+        .daylybread-slide img {
+          height: 280px;
+        }
+
+        footer .grid,
+        footer .flex-wrap {
+          row-gap: 1.5rem;
+        }
+
+        footer .pt-8.border-t.border-white\/5.flex.flex-col.sm\:flex-row.justify-between.items-center.gap-4 > * {
+          width: 100%;
+        }
+      }
+    `;
+
     document.head.appendChild(style);
-
-    // Fix event delegation for better responsiveness
-    document.addEventListener('touchstart', function() {}, { passive: true });
-    document.addEventListener('touchmove', function() {}, { passive: true });
-    
-    patchedElements.add('responsiveness');
   }
 
-  // Initialize
+  function runPatches() {
+    ensureScrollTop();
+    fixResponsiveness();
+    patchHeaderLogo();
+    patchHeroVideo();
+    patchMealsSlideshow();
+    hideWaitlistStats();
+    fixNavigationLinks();
+    applyPendingSectionNavigation();
+    patchedElements.add('ran');
+  }
+
+  function onUrlChange() {
+    if (location.href === lastUrl) return;
+    lastUrl = location.href;
+    sessionStorage.removeItem('daylybread:did-scroll-top');
+    ensureScrollTop(true);
+    setTimeout(runPatches, 80);
+    setTimeout(applyPendingSectionNavigation, 240);
+  }
+
   function init() {
+    fixResponsiveness();
     runPatches();
-    
-    // Run multiple times to catch dynamically loaded content
-    [100, 300, 500, 800, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000].forEach(d => {
-      setTimeout(runPatches, d);
+
+    [120, 320, 650, 1200, 2200].forEach((delay) => setTimeout(runPatches, delay));
+
+    const observer = new MutationObserver(() => {
+      onUrlChange();
+      runPatches();
     });
 
-    // Watch for DOM changes
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          runPatches();
-          break;
-        }
-      }
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    window.addEventListener('load', () => {
+      ensureScrollTop(true);
+      runPatches();
+      applyPendingSectionNavigation();
     });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
+    window.addEventListener('popstate', () => {
+      onUrlChange();
     });
   }
 
-  // Start when ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', init, { once: true });
   } else {
     init();
   }
-
-  // Handle route changes
-  let lastUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      patchedElements.clear();
-      if (slideshowInterval) clearInterval(slideshowInterval);
-      setTimeout(runPatches, 500);
-    }
-  }).observe(document, { subtree: true, childList: true });
-
 })();
