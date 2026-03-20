@@ -4,6 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DaylyBread</title>
+    <script>
+      (function () {
+        function resetScroll() {
+          window.scrollTo(0, 0);
+          requestAnimationFrame(function () {
+            window.scrollTo(0, 0);
+          });
+          setTimeout(function () {
+            window.scrollTo(0, 0);
+          }, 120);
+        }
+
+        if ('scrollRestoration' in history) {
+          history.scrollRestoration = 'manual';
+        }
+
+        var params = new URLSearchParams(window.location.search);
+        var redirectedPath = params.get('p');
+        if (redirectedPath) {
+          params.delete('p');
+          var query = params.toString().replace(/~and~/g, '&');
+          var nextUrl = redirectedPath + (query ? '?' + query : '') + window.location.hash;
+          window.history.replaceState(null, '', nextUrl);
+        }
+
+        resetScroll();
+        window.addEventListener('DOMContentLoaded', resetScroll, { once: true });
+        window.addEventListener('load', resetScroll, { once: true });
+        window.addEventListener('pageshow', resetScroll);
+      })();
+    </script>
     <script type="module" crossorigin src="/Daylee-bread/assets/index-D9ll0efb.js"></script>
     <link rel="stylesheet" crossorigin href="/Daylee-bread/assets/index-_FDe08Ys.css">
   </head>
