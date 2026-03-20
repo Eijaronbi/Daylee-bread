@@ -1,161 +1,603 @@
-// DaylyBread Final Patch Script - Anti-Duplicate & YouTube Background Version
 (function() {
   'use strict';
 
+  const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/patch.js'));
+  const scriptUrl = script?.src ? new URL(script.src, window.location.href) : new URL(window.location.href);
+  const BASE_PATH = scriptUrl.pathname.replace(/\/patch\.js$/, '') || '';
+  const ROOT_URL = `${window.location.origin}${BASE_PATH || ''}/`.replace(/([^:]\/)\/+/g, '$1');
+  const SECTION_STORAGE_KEY = 'daylybread:pending-section';
+  const PATCH_STYLE_ID = 'daylybread-runtime-patch-styles';
+  const HERO_IFRAME_ID = 'daylybread-hero-iframe';
+  const HERO_OVERLAY_ID = 'daylybread-hero-overlay';
+  const SLIDESHOW_ID = 'daylybread-meals-slideshow';
+  const HEADER_LOGO_CLASS = 'daylybread-header-logo';
+  const patchedElements = new Set();
+  let slideshowTimer = null;
+  let lastUrl = location.href;
+
   const CONFIG = {
-    // YouTube Shorts ID: wvZeYWiL-J8
-    youtubeId: 'wvZeYWiL-J8', 
-    logoSrc: '/Daylee-bread/assets/logo-new.jpg',
+    youtubeId: 'wvZeYWiL-J8',
+    logoSrc: `${BASE_PATH}/assets/logo-new.jpg`,
     meals: [
-      { image: '/Daylee-bread/assets/breakfast-new.jpg', title: 'Breakfast', description: 'Akara and pap', time: '7am - 9am' },
-      { image: '/Daylee-bread/assets/lunch-new.jpg', title: 'Afternoon', description: 'Rice, chicken and plantain', time: '1pm - 3pm' },
-      { image: '/Daylee-bread/assets/dinner-new.jpg', title: 'Evening', description: 'Semo, vegetable soup, Eguisi and fish', time: '6pm - 7pm' }
-    ]
+      {
+        image: `${BASE_PATH}/assets/breakfast-new.jpg`,
+        title: 'Breakfast',
+        description: 'Akara and pap',
+        time: '7am - 9am'
+      },
+      {
+        image: `${BASE_PATH}/assets/lunch-new.jpg`,
+        title: 'Afternoon',
+        description: 'Rice, chicken and plantain',
+        time: '1pm - 3pm'
+      },
+      {
+        image: `${BASE_PATH}/assets/dinner-new.jpg`,
+        title: 'Evening',
+        description: 'Semo, vegetable soup, Egusi and fish',
+        time: '6pm - 7pm'
+      }
+    ],
+    sectionTargets: {
+      home: ['EAT', 'EARN', 'BELONG'],
+      ecosystem: ['The Ecosystem', 'Ecosystem'],
+      community: ['Join Our Community', 'Community'],
+      roadmap: ['Roadmap'],
+      'how it works': ['How It Works', 'How it Works'],
+      'meal plans': ['Meal Plans', 'Our Meal Plans']
+    }
   };
 
-  const patchedElements = new Set();
-
-  function runPatches() {
-    // SAFETY CHECK: Ensure header and hero exist before running to avoid "Footer First" loading
-    const header = document.querySelector('header, nav');
-    const hero = document.querySelector('section');
-    if (!header && !hero) return;
-
-    patchHeroVideo();
-    patchLogo();
-    patchMealsSlideshow();
-    fixNavigationLinks();
-    hideWaitlistStats(); 
-    fixResponsiveness();
+  function normalizeText(value) {
+    return (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  // 1. YouTube Background (Optimized Aspect Ratio)
-  function patchHeroVideo() {
-    if (patchedElements.has('hero-video')) return;
-    const heroSection = Array.from(document.querySelectorAll('section')).find(s => 
-      s.textContent.includes('EAT') && s.textContent.includes('EARN')
+  function isHomePath(pathname = location.pathname) {
+    const trimmedBase = BASE_PATH.replace(/\/$/, '');
+    return pathname === `${trimmedBase}` || pathname === `${trimmedBase}/` || pathname === '/' || pathname === '';
+  }
+
+  function ensureScrollTop(force = false) {
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+
+    if (force || !sessionStorage.getItem('daylybread:did-scroll-top')) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      sessionStorage.setItem('daylybread:did-scroll-top', 'true');
+      setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 60);
+      setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 240);
+    }
+  }
+
+  function findSectionByMarkers(markers) {
+    const sections = Array.from(document.querySelectorAll('section'));
+    return sections.find((section) => {
+      const text = section.textContent || '';
+      return markers.every((marker) => text.includes(marker));
+    }) || null;
+  }
+
+  function findSectionByName(name) {
+    const markers = CONFIG.sectionTargets[name] || [name];
+    const sections = Array.from(document.querySelectorAll('section'));
+
+    for (const marker of markers) {
+      const direct = sections.find((section) => (section.textContent || '').includes(marker));
+      if (direct) return direct;
+    }
+
+    const heading = Array.from(document.querySelectorAll('h1, h2, h3, h4')).find((node) => {
+      const text = node.textContent || '';
+      return markers.some((marker) => text.includes(marker));
+    });
+
+    return heading ? heading.closest('section') || heading : null;
+  }
+
+  function clearDuplicatePatchedLogos() {
+    document.querySelectorAll('.patched-logo').forEach((node) => node.remove());
+    document.querySelectorAll(`img[src*="${CONFIG.logoSrc.split('/').pop()}"]`).forEach((img) => {
+      if (!img.closest('header, nav')) {
+        img.remove();
+      }
+    });
+  }
+
+  function patchHeaderLogo() {
+    const header = document.querySelector('header, nav');
+    if (!header) return;
+
+    clearDuplicatePatchedLogos();
+
+    const brand = Array.from(header.querySelectorAll('a, div, button')).find((node) =>
+      normalizeText(node.textContent).includes('daylybread')
     );
+
+    if (!brand) return;
+
+    let logo = brand.querySelector(`img.${HEADER_LOGO_CLASS}`);
+    if (!logo) {
+      logo = document.createElement('img');
+      logo.className = HEADER_LOGO_CLASS;
+      logo.alt = 'DaylyBread logo';
+      logo.decoding = 'async';
+      logo.loading = 'eager';
+      logo.src = CONFIG.logoSrc;
+      const oldIcon = brand.querySelector('svg, img');
+      if (oldIcon) {
+        oldIcon.replaceWith(logo);
+      } else {
+        brand.prepend(logo);
+      }
+    }
+
+    logo.src = CONFIG.logoSrc;
+  }
+
+  function patchHeroVideo() {
+    const heroSection = findSectionByMarkers(['EAT', 'EARN']) || findSectionByName('home');
     if (!heroSection) return;
 
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://www.youtube.com/embed/${CONFIG.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${CONFIG.youtubeId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&showinfo=0`;
-    
-    // The "Cover" Hack: Ensures no black bars on any screen size
-    iframe.style.cssText = 'position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100vh;min-width:177.77vh;transform:translate(-50%,-50%);z-index:0;pointer-events:none;border:none;';
-    
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);z-index:1;';
+    const existingFrame = heroSection.querySelector(`#${HERO_IFRAME_ID}`);
+    const existingOverlay = heroSection.querySelector(`#${HERO_OVERLAY_ID}`);
+    heroSection.querySelectorAll('video.hero-video-bg').forEach((node) => node.remove());
 
-    heroSection.style.position = 'relative';
-    heroSection.style.overflow = 'hidden';
-    heroSection.prepend(overlay);
-    heroSection.prepend(iframe);
-    
-    patchedElements.add('hero-video');
-  }
-
-  // 2. Logo Swap (Surgical Targeting - PROTECTS SOCIAL ICONS)
-  function patchLogo() {
-    // A. Target Header Logo
-    const header = document.querySelector('header, nav');
-    if (header && !patchedElements.has('logo-header-surgical')) {
-      const potentialLogos = header.querySelectorAll('img, svg');
-      const protectedKeywords = ['x', 'twitter', 'telegram', 'discord', 'menu', 'search'];
-      
-      potentialLogos.forEach(logo => {
-        if (patchedElements.has('logo-header-surgical')) return;
-        const rect = logo.getBoundingClientRect();
-        const nearbyText = logo.parentElement.textContent.trim().toLowerCase();
-        const isProtected = protectedKeywords.some(key => nearbyText.includes(key));
-        
-        if (rect.left < window.innerWidth * 0.4 && !isProtected) {
-          const img = document.createElement('img');
-          img.src = CONFIG.logoSrc;
-          img.className = 'patched-logo';
-          img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;';
-          logo.style.display = 'none';
-          logo.parentElement.insertBefore(img, logo);
-          patchedElements.add('logo-header-surgical');
-        }
-      });
+    if (!existingFrame) {
+      const iframe = document.createElement('iframe');
+      iframe.id = HERO_IFRAME_ID;
+      iframe.title = 'DaylyBread hero video';
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      iframe.src = `https://www.youtube.com/embed/${CONFIG.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${CONFIG.youtubeId}&controls=0&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`;
+      heroSection.prepend(iframe);
     }
 
-    // B. Target Footer Brand (Protects social icons in other blocks)
-    const footer = document.querySelector('footer');
-    if (footer) {
-      const brandElements = Array.from(footer.querySelectorAll('div, p, h4')).filter(el => 
-        el.textContent.includes('DAYLYBREAD')
-      );
-      
-      brandElements.forEach(el => {
-        if (el.querySelector('.patched-logo')) return;
-        const img = document.createElement('img');
-        img.src = CONFIG.logoSrc;
-        img.className = 'patched-logo';
-        img.style.cssText = 'width:42px;height:42px;object-fit:contain;border-radius:8px;margin-bottom:10px;display:block;';
-        el.prepend(img);
-      });
+    if (!existingOverlay) {
+      const overlay = document.createElement('div');
+      overlay.id = HERO_OVERLAY_ID;
+      heroSection.prepend(overlay);
     }
-  }
 
-  // 3. Navigation Interceptor (Fixes 404 Errors)
-  function fixNavigationLinks() {
-    document.querySelectorAll('a, button').forEach(link => {
-      const text = link.textContent?.trim().toLowerCase();
-      const routes = ['ecosystem', 'community', 'roadmap', 'how it works', 'meal plans', 'home'];
-      
-      if (routes.some(r => text.includes(r))) {
-        link.onclick = (e) => {
-          e.preventDefault();
-          if (text.includes('home')) { window.scrollTo({top: 0, behavior: 'smooth'}); return; }
-          
-          let search = text.includes('meal') ? 'Meal Plans' : text.includes('how') ? 'How it Works' : text.charAt(0).toUpperCase() + text.slice(1);
-          const target = Array.from(document.querySelectorAll('section, h2, h3')).find(el => el.textContent.includes(search));
-          if (target) target.scrollIntoView({ behavior: 'smooth' });
-        };
+    heroSection.classList.add('daylybread-patched-hero');
+    Array.from(heroSection.children).forEach((child) => {
+      if (child.id !== HERO_IFRAME_ID && child.id !== HERO_OVERLAY_ID) {
+        child.classList.add('daylybread-hero-content');
       }
     });
   }
 
-  // 4. Waitlist Stats (Deep Hide)
+  function buildSlideshow() {
+    const container = document.createElement('div');
+    container.id = SLIDESHOW_ID;
+    container.className = 'daylybread-slideshow';
+
+    const stage = document.createElement('div');
+    stage.className = 'daylybread-slideshow-stage';
+    container.appendChild(stage);
+
+    const dots = document.createElement('div');
+    dots.className = 'daylybread-slideshow-dots';
+
+    CONFIG.meals.forEach((meal, index) => {
+      const slide = document.createElement('article');
+      slide.className = 'daylybread-slide';
+      slide.dataset.index = String(index);
+      slide.hidden = index !== 0;
+
+      slide.innerHTML = `
+        <img src="${meal.image}" alt="${meal.title}" loading="eager" />
+        <div class="daylybread-slide-overlay">
+          <p class="daylybread-slide-kicker">${meal.time}</p>
+          <h3>${meal.title}</h3>
+          <p>${meal.description}</p>
+        </div>
+      `;
+
+      stage.appendChild(slide);
+
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'daylybread-slideshow-dot';
+      dot.setAttribute('aria-label', `Show ${meal.title}`);
+      dot.dataset.index = String(index);
+      if (index === 0) dot.setAttribute('aria-current', 'true');
+      dot.addEventListener('click', () => showSlide(index));
+      dots.appendChild(dot);
+    });
+
+    container.appendChild(dots);
+    return container;
+  }
+
+  function showSlide(index) {
+    const slides = Array.from(document.querySelectorAll('.daylybread-slide'));
+    const dots = Array.from(document.querySelectorAll('.daylybread-slideshow-dot'));
+    if (!slides.length) return;
+
+    slides.forEach((slide, slideIndex) => {
+      slide.hidden = slideIndex !== index;
+    });
+
+    dots.forEach((dot, dotIndex) => {
+      if (dotIndex === index) {
+        dot.setAttribute('aria-current', 'true');
+      } else {
+        dot.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function startSlideshow() {
+    if (slideshowTimer) {
+      clearInterval(slideshowTimer);
+    }
+
+    slideshowTimer = setInterval(() => {
+      const slides = Array.from(document.querySelectorAll('.daylybread-slide'));
+      if (!slides.length) return;
+      const currentIndex = slides.findIndex((slide) => !slide.hidden);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % slides.length : 0;
+      showSlide(nextIndex);
+    }, 4200);
+  }
+
+  function patchMealsSlideshow() {
+    const mealSection = findSectionByName('meal plans');
+    if (!mealSection) return;
+
+    const existing = mealSection.querySelector(`#${SLIDESHOW_ID}`);
+    if (!existing) {
+      const brokenImage = Array.from(mealSection.querySelectorAll('img')).find((img) => {
+        const src = img.getAttribute('src') || '';
+        return src.includes('/images/meal-plan.jpg') || normalizeText(img.alt).includes('meal plan');
+      });
+
+      const slideshow = buildSlideshow();
+      if (brokenImage) {
+        brokenImage.replaceWith(slideshow);
+      } else {
+        const headingBlock = mealSection.querySelector('h2, h3')?.parentElement || mealSection.firstElementChild || mealSection;
+        headingBlock.insertAdjacentElement('afterend', slideshow);
+      }
+    }
+
+    mealSection.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      if (src.includes('/images/meal-plan.jpg')) {
+        img.closest('div')?.remove();
+      }
+    });
+
+    startSlideshow();
+  }
+
   function hideWaitlistStats() {
-    const words = ['Waitlisters', 'Tasks Completed', 'Cities', 'Taskers'];
-    document.querySelectorAll('div, span, p, h4').forEach(el => {
-      if (words.some(word => el.textContent.includes(word))) {
-        let container = el.closest('div');
-        if (container && container.textContent.trim().length < 60) {
-          container.style.display = 'none';
-          container.style.visibility = 'hidden';
-        }
+    const statLabels = ['Waitlisters', 'Tasks Completed', 'Cities', 'Taskers'];
+    const statBlocks = [];
+
+    document.querySelectorAll('p, span, div, h3, h4').forEach((node) => {
+      const text = (node.textContent || '').trim();
+      if (statLabels.includes(text)) {
+        const block = node.closest('div');
+        if (block) statBlocks.push(block);
       }
+    });
+
+    statBlocks.forEach((block) => {
+      block.style.display = 'none';
+    });
+
+    const rows = Array.from(document.querySelectorAll('div')).filter((node) => {
+      const text = node.textContent || '';
+      return statLabels.filter((label) => text.includes(label)).length >= 2;
+    });
+
+    rows.forEach((row) => {
+      row.style.display = 'none';
     });
   }
 
-  // 5. General Responsiveness
+  function goToSection(name) {
+    const target = findSectionByName(name);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (name === 'home') {
+        ensureScrollTop(true);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function navigateToHomeSection(name) {
+    sessionStorage.setItem(SECTION_STORAGE_KEY, name);
+    const homeUrl = new URL(ROOT_URL, window.location.origin);
+    if (location.href !== homeUrl.href) {
+      window.location.assign(homeUrl.href);
+    } else {
+      setTimeout(() => goToSection(name), 100);
+    }
+  }
+
+  function fixNavigationLinks() {
+    const sectionNames = ['home', 'ecosystem', 'community', 'roadmap', 'how it works', 'meal plans'];
+
+    document.querySelectorAll('a, button').forEach((link) => {
+      const text = normalizeText(link.textContent);
+      const matched = sectionNames.find((name) => text === name || text.includes(name));
+      if (!matched || link.dataset.daylybreadPatchedNav === 'true') return;
+
+      link.dataset.daylybreadPatchedNav = 'true';
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (matched === 'home') {
+          if (isHomePath()) {
+            ensureScrollTop(true);
+          } else {
+            navigateToHomeSection('home');
+          }
+          return;
+        }
+
+        if (isHomePath()) {
+          goToSection(matched);
+        } else {
+          navigateToHomeSection(matched);
+        }
+      }, true);
+    });
+  }
+
+  function applyPendingSectionNavigation() {
+    const pending = sessionStorage.getItem(SECTION_STORAGE_KEY);
+    if (!pending || !isHomePath()) return;
+
+    if (pending === 'home') {
+      ensureScrollTop(true);
+      sessionStorage.removeItem(SECTION_STORAGE_KEY);
+      return;
+    }
+
+    const target = findSectionByName(pending);
+    if (target) {
+      setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
+      sessionStorage.removeItem(SECTION_STORAGE_KEY);
+    }
+  }
+
   function fixResponsiveness() {
-    if (patchedElements.has('responsiveness')) return;
+    if (document.getElementById(PATCH_STYLE_ID)) return;
+
     const style = document.createElement('style');
+    style.id = PATCH_STYLE_ID;
     style.textContent = `
-      html, body { max-width: 100vw; overflow-x: hidden; scroll-behavior: smooth; }
-      iframe { pointer-events: none; }
-      .patched-logo { margin-right: 10px; }
-      footer { text-align: left !important; }
-      @media (max-width: 768px) { .daylybread-slideshow img { height: 250px !important; } }
+      html, body {
+        max-width: 100%;
+        overflow-x: hidden;
+        scroll-behavior: smooth;
+      }
+
+      .daylybread-patched-hero {
+        position: relative !important;
+        overflow: hidden !important;
+        min-height: 100svh !important;
+        isolation: isolate;
+        background:
+          radial-gradient(circle at top, rgba(255, 137, 90, 0.28), transparent 38%),
+          linear-gradient(180deg, rgba(16, 16, 16, 0.18) 0%, rgba(10, 10, 10, 0.52) 100%) !important;
+      }
+
+      #${HERO_IFRAME_ID} {
+        position: absolute !important;
+        inset: 50% auto auto 50% !important;
+        width: 100vw !important;
+        height: 56.25vw !important;
+        min-width: 177.77vh !important;
+        min-height: 100svh !important;
+        transform: translate(-50%, -50%) !important;
+        border: 0 !important;
+        pointer-events: none !important;
+        z-index: 0 !important;
+        filter: brightness(1.2) saturate(1.08) contrast(1.03);
+      }
+
+      #${HERO_OVERLAY_ID} {
+        position: absolute !important;
+        inset: 0 !important;
+        background:
+          linear-gradient(180deg, rgba(7, 7, 7, 0.22) 0%, rgba(7, 7, 7, 0.5) 60%, rgba(7, 7, 7, 0.72) 100%) !important;
+        z-index: 1 !important;
+      }
+
+      .daylybread-hero-content {
+        position: relative !important;
+        z-index: 2 !important;
+      }
+
+      .${HEADER_LOGO_CLASS} {
+        width: 42px !important;
+        height: 42px !important;
+        border-radius: 12px !important;
+        object-fit: cover !important;
+        flex-shrink: 0;
+      }
+
+      #${SLIDESHOW_ID} {
+        width: 100%;
+        max-width: 64rem;
+        margin: 0 auto 3rem;
+        border-radius: 1.5rem;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(20,20,20,0.92);
+        box-shadow: 0 24px 80px rgba(0,0,0,0.42);
+      }
+
+      .daylybread-slideshow-stage {
+        position: relative;
+      }
+
+      .daylybread-slide {
+        position: relative;
+      }
+
+      .daylybread-slide[hidden] {
+        display: none !important;
+      }
+
+      .daylybread-slide img {
+        width: 100%;
+        height: clamp(260px, 48vw, 520px);
+        object-fit: cover;
+        display: block;
+      }
+
+      .daylybread-slide-overlay {
+        position: absolute;
+        inset: auto 0 0 0;
+        padding: 1.5rem;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.82) 100%);
+      }
+
+      .daylybread-slide-kicker {
+        margin: 0 0 0.35rem;
+        color: #ff8a65;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .daylybread-slide-overlay h3 {
+        margin: 0 0 0.25rem;
+        font-size: clamp(1.4rem, 3vw, 2rem);
+        font-weight: 800;
+        color: #fff;
+      }
+
+      .daylybread-slide-overlay p:last-child {
+        margin: 0;
+        color: rgba(255,255,255,0.82);
+      }
+
+      .daylybread-slideshow-dots {
+        display: flex;
+        justify-content: center;
+        gap: 0.65rem;
+        padding: 1rem 1rem 1.25rem;
+      }
+
+      .daylybread-slideshow-dot {
+        width: 0.78rem;
+        height: 0.78rem;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.32);
+      }
+
+      .daylybread-slideshow-dot[aria-current='true'] {
+        background: #ff5722;
+        transform: scale(1.08);
+      }
+
+      footer ul,
+      footer .space-y-2 {
+        word-break: break-word;
+      }
+
+      @media (max-width: 900px) {
+        footer .gap-12 {
+          gap: 2rem !important;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .${HEADER_LOGO_CLASS} {
+          width: 38px !important;
+          height: 38px !important;
+        }
+
+        #${SLIDESHOW_ID} {
+          border-radius: 1.15rem;
+          margin-bottom: 2rem;
+        }
+
+        .daylybread-slide-overlay {
+          padding: 1rem;
+        }
+      }
+
+      @media (max-width: 640px) {
+        #${HERO_IFRAME_ID} {
+          width: 140vw !important;
+          height: 78.75vw !important;
+        }
+
+        .daylybread-slide img {
+          height: 280px;
+        }
+
+        footer .grid,
+        footer .flex-wrap {
+          row-gap: 1.5rem;
+        }
+      }
     `;
+
     document.head.appendChild(style);
-    patchedElements.add('responsiveness');
+  }
+
+  function runPatches() {
+    ensureScrollTop();
+    fixResponsiveness();
+    patchHeaderLogo();
+    patchHeroVideo();
+    patchMealsSlideshow();
+    hideWaitlistStats();
+    fixNavigationLinks();
+    applyPendingSectionNavigation();
+    patchedElements.add('ran');
+  }
+
+  function onUrlChange() {
+    if (location.href === lastUrl) return;
+    lastUrl = location.href;
+    sessionStorage.removeItem('daylybread:did-scroll-top');
+    ensureScrollTop(true);
+    setTimeout(runPatches, 80);
+    setTimeout(applyPendingSectionNavigation, 240);
   }
 
   function init() {
+    fixResponsiveness();
     runPatches();
-    const observer = new MutationObserver(() => runPatches());
-    observer.observe(document.body, { childList: true, subtree: true });
+
+    [120, 320, 650, 1200, 2200].forEach((delay) => setTimeout(runPatches, delay));
+
+    const observer = new MutationObserver(() => {
+      onUrlChange();
+      runPatches();
+    });
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    window.addEventListener('load', () => {
+      ensureScrollTop(true);
+      runPatches();
+      applyPendingSectionNavigation();
+    });
+
+    window.addEventListener('popstate', () => {
+      onUrlChange();
+    });
   }
 
-  if (document.readyState === 'loading') { 
-    document.addEventListener('DOMContentLoaded', init); 
-  } else { 
-    init(); 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
   }
 })();
-                            
