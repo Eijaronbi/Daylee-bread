@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DaylyBread</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      (function () {
+        var pathSegmentsToKeep = 1;
+        var locationData = window.location;
+        var origin = locationData.origin || (locationData.protocol + '//' + locationData.host);
+        var redirectPath = locationData.pathname
+          .split('/')
+          .slice(1, 1 + pathSegmentsToKeep)
+          .join('/');
+        var route = locationData.pathname.slice(redirectPath.length + 1);
+        var query = locationData.search ? '&' + locationData.search.slice(1).replace(/&/g, '~and~') : '';
+        var hash = locationData.hash || '';
+        var destination = origin + '/' + redirectPath + '/?p=/' + route + query + hash;
+        location.replace(destination);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
